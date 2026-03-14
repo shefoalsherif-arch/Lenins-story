@@ -38,10 +38,10 @@
 ## 预览
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/0948f1ce-1ddf-4c1d-bf50-91681bd09bd4" alt="Love Page Preview" width="80%">
+  <img src="https://github.com/user-attachments/assets/0c74a0b6-5a9f-484d-a92e-e89f36f1f496" alt="Love Page Preview" width="80%">
 </p>
 
-**在线演示**: [love.gp.yycc.dev](https://love.gp.yycc.dev)
+**中文站演示**: [love.gp.yycc.dev](https://love.gp.yycc.dev) · **English Demo**: [love-page-en.vercel.app](https://love-page-en.vercel.app/)
 
 ---
 
