@@ -1,0 +1,419 @@
+---
+import { resolveAnniversaries, resolveMotto, type Config } from '../config';
+import { APP_EVENTS } from '../constants/client';
+import type { LocaleMessages } from '../i18n/utils';
+
+interface Props {
+  config: Config;
+  messages?: LocaleMessages;
+}
+
+const { config, messages } = Astro.props;
+const motto = resolveMotto(config);
+const anniversaries = resolveAnniversaries(config);
+const sharePayload = {
+  locale: config.siteLocale || 'zh-CN',
+  boy: config.boy,
+  girl: config.girl,
+  loveDate: config.loveDate,
+  marriageDate: config.marriageDate,
+  anniversaries,
+  countdownThreshold: config.anniversaryCountdownThreshold ?? 7,
+  motto,
+  anniversaryI18n: messages?.anniversary || null,
+  generateMemorialCardEvent: APP_EVENTS.generateMemorialCard,
+  uiMessages: {
+    badgeToday: messages?.anniversary.today || '今天',
+    badgeCountdown: messages?.share.badgeCountdown || '还有 {gap} 天',
+    mottoFallback: messages?.share.mottoFallback || '把今天，写成我们的纪念。',
+    fallbackTitle: messages?.share.fallbackTitle || '今天也值得纪念',
+    fallbackMessage: messages?.share.fallbackMessage || '把平凡的一天，留成我们的专属回忆。',
+    loveYears: messages?.share.loveYears || '相恋 {years}年{days}天',
+    marriageYears: messages?.share.marriageYears || '婚姻 {years}年{days}天',
+    generatedOn: messages?.share.generatedOn || '生成于 {date}',
+    footerText: messages?.share.footerText || 'Love Page · 专属纪念卡',
+    previewTitle: messages?.share.title || '纪念卡预览',
+    previewSubtitle: messages?.share.previewSubtitle || '可下载后分享给家人，记录此刻。',
+    closeLabel: messages?.share.close || '关闭',
+    downloadLabel: messages?.share.download || '下载纪念卡',
+    closePreview: messages?.share.closePreview || '关闭',
+  },
+};
+---
+
+<script id="share-script-payload" type="application/json" set:html={JSON.stringify(sharePayload)}></script>
+<script>
+  import { diffFrom } from '../utils';
+  import { resolveMemorialCardContext } from '../scripts/share/memorialCard.ts';
+
+  function readSharePayload() {
+    const fallback = {
+      locale: 'zh-CN',
+      boy: '',
+      girl: '',
+      loveDate: '1970-01-01',
+      marriageDate: '1970-01-01',
+      anniversaries: [],
+      countdownThreshold: 7,
+      motto: '',
+      anniversaryI18n: null,
+      generateMemorialCardEvent: 'generate-memorial-card',
+      uiMessages: {
+        badgeToday: '今天',
+        badgeCountdown: '还有 {gap} 天',
+        mottoFallback: '把今天，写成我们的纪念。',
+        fallbackTitle: '今天也值得纪念',
+        fallbackMessage: '把平凡的一天，留成我们的专属回忆。',
+        loveYears: '相恋 {years}年{days}天',
+        marriageYears: '婚姻 {years}年{days}天',
+        generatedOn: '生成于 {date}',
+        footerText: 'Love Page · 专属纪念卡',
+        previewTitle: '纪念卡预览',
+        previewSubtitle: '可下载后分享给家人，记录此刻。',
+        closeLabel: '关闭',
+        downloadLabel: '下载纪念卡',
+        closePreview: '关闭',
+      },
+    };
+    const payloadEl = document.getElementById('share-script-payload');
+    if (!(payloadEl instanceof HTMLScriptElement)) return fallback;
+
+    try {
+      const payload = JSON.parse(payloadEl.textContent || '{}');
+      return {
+        locale: typeof payload.locale === 'string' && payload.locale ? payload.locale : fallback.locale,
+        boy: typeof payload.boy === 'string' ? payload.boy : fallback.boy,
+        girl: typeof payload.girl === 'string' ? payload.girl : fallback.girl,
+        loveDate: typeof payload.loveDate === 'string' ? payload.loveDate : fallback.loveDate,
+        marriageDate: typeof payload.marriageDate === 'string' ? payload.marriageDate : fallback.marriageDate,
+        anniversaries: Array.isArray(payload.anniversaries) ? payload.anniversaries : fallback.anniversaries,
+        countdownThreshold: Number.isFinite(payload.countdownThreshold)
+          ? Number(payload.countdownThreshold)
+          : fallback.countdownThreshold,
+        motto: typeof payload.motto === 'string' ? payload.motto : fallback.motto,
+        anniversaryI18n: payload.anniversaryI18n || fallback.anniversaryI18n,
+        generateMemorialCardEvent:
+          typeof payload.generateMemorialCardEvent === 'string' && payload.generateMemorialCardEvent
+            ? payload.generateMemorialCardEvent
+            : fallback.generateMemorialCardEvent,
+        uiMessages: payload.uiMessages || fallback.uiMessages,
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  const payload = readSharePayload();
+
+  const memorialCardPalette = {
+    dark: {
+      bgStart: '#1a1126',
+      bgMid: '#2a1632',
+      bgEnd: '#1a1126',
+      halo: 'rgba(255, 188, 217, 0.16)',
+      titleText: '#ffffff',
+      mottoText: 'rgba(255, 232, 242, 0.88)',
+      badgeBg: 'rgba(255, 255, 255, 0.14)',
+      badgeText: '#ffd6e7',
+      displayLabelText: '#ffffff',
+      messageText: 'rgba(255, 236, 245, 0.92)',
+      fallbackTitleText: '#ffd6e7',
+      fallbackMessageText: 'rgba(255, 236, 245, 0.9)',
+      statsText: 'rgba(255, 184, 212, 0.95)',
+      dateText: 'rgba(255, 255, 255, 0.58)',
+      footerText: 'rgba(255, 255, 255, 0.32)',
+    },
+    light: {
+      bgStart: '#fffafc',
+      bgMid: '#ffeef5',
+      bgEnd: '#fff7fb',
+      halo: 'rgba(255, 125, 168, 0.14)',
+      titleText: '#5a2f44',
+      mottoText: '#7a4f65',
+      badgeBg: 'rgba(255, 136, 178, 0.16)',
+      badgeText: '#8f2f56',
+      displayLabelText: '#4f2a3d',
+      messageText: '#6c4257',
+      fallbackTitleText: '#8f2f56',
+      fallbackMessageText: '#72495d',
+      statsText: '#a23d64',
+      dateText: 'rgba(87, 58, 73, 0.72)',
+      footerText: 'rgba(87, 58, 73, 0.48)',
+    },
+  };
+
+  function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+    const chars = [...text];
+    let line = '';
+    let currentY = y;
+    let drawn = 0;
+
+    for (let i = 0; i < chars.length; i++) {
+      const next = line + chars[i];
+      if (ctx.measureText(next).width > maxWidth && line) {
+        drawn += 1;
+        if (drawn >= maxLines) {
+          const trimmed = line.slice(0, Math.max(0, line.length - 1)) + '…';
+          ctx.fillText(trimmed, x, currentY);
+          return currentY;
+        }
+        ctx.fillText(line, x, currentY);
+        line = chars[i];
+        currentY += lineHeight;
+      } else {
+        line = next;
+      }
+    }
+
+    if (line) {
+      ctx.fillText(line, x, currentY);
+    }
+    return currentY;
+  }
+
+  function formatCardDate(locale, now) {
+    try {
+      return new Intl.DateTimeFormat(locale, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(now);
+    } catch {
+      return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')}`;
+    }
+  }
+
+  (function initShare() {
+    const floatingShareBtn = document.getElementById('shareBtn');
+    let closeActivePreview = null;
+
+    function generateMemorialCard(selectedIndex, cb) {
+      const W = 750;
+      const H = 1334;
+      const cvs = document.createElement('canvas');
+      cvs.width = W;
+      cvs.height = H;
+      const ctx = cvs.getContext('2d');
+      if (!ctx) return;
+      const theme = document.documentElement.dataset.theme;
+      const palette = theme === 'light' ? memorialCardPalette.light : memorialCardPalette.dark;
+
+      const context = resolveMemorialCardContext({
+        anniversaries: payload.anniversaries,
+        selectedIndex,
+        countdownThreshold: payload.countdownThreshold,
+        anniversaryI18n: payload.anniversaryI18n || undefined,
+      });
+      const love = diffFrom(payload.loveDate);
+      const marriage = diffFrom(payload.marriageDate);
+      const now = new Date();
+      const displayDate = formatCardDate(payload.locale, now);
+      const fileDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      const bg = ctx.createLinearGradient(0, 0, W, H);
+      bg.addColorStop(0, palette.bgStart);
+      bg.addColorStop(0.55, palette.bgMid);
+      bg.addColorStop(1, palette.bgEnd);
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = palette.halo;
+      ctx.beginPath();
+      ctx.arc(W * 0.5, H * 0.2, 180, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = palette.titleText;
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 46px "Dancing Script", cursive';
+      ctx.fillText(`${payload.boy} ♥ ${payload.girl}`, W / 2, 180);
+
+      ctx.fillStyle = palette.mottoText;
+      ctx.font = '22px "Noto Sans SC", sans-serif';
+      ctx.fillText(payload.motto || payload.uiMessages.mottoFallback, W / 2, 236);
+
+      if (context) {
+        const badge = context.gap === 0
+          ? payload.uiMessages.badgeToday
+          : payload.uiMessages.badgeCountdown.replace('{gap}', String(context.gap));
+        const icon = typeof context.anniversary.icon === 'string' ? context.anniversary.icon : '💕';
+
+        ctx.fillStyle = palette.badgeBg;
+        if (typeof ctx.roundRect === 'function') {
+          ctx.beginPath();
+          ctx.roundRect(W / 2 - 110, 300, 220, 52, 26);
+          ctx.fill();
+        } else {
+          ctx.fillRect(W / 2 - 110, 300, 220, 52);
+        }
+
+        ctx.fillStyle = palette.badgeText;
+        ctx.font = 'bold 22px "Noto Sans SC", sans-serif';
+        ctx.fillText(`${icon} ${badge}`, W / 2, 334);
+
+        ctx.fillStyle = palette.displayLabelText;
+        ctx.font = 'bold 42px "Noto Sans SC", sans-serif';
+        ctx.fillText(context.displayLabel, W / 2, 440);
+
+        ctx.fillStyle = palette.messageText;
+        ctx.font = '28px "Noto Sans SC", sans-serif';
+        drawWrappedText(ctx, context.message, W / 2, 510, 560, 46, 3);
+      } else {
+        ctx.fillStyle = palette.fallbackTitleText;
+        ctx.font = 'bold 38px "Noto Sans SC", sans-serif';
+        ctx.fillText(payload.uiMessages.fallbackTitle, W / 2, 420);
+        ctx.fillStyle = palette.fallbackMessageText;
+        ctx.font = '28px "Noto Sans SC", sans-serif';
+        ctx.fillText(payload.uiMessages.fallbackMessage, W / 2, 490);
+      }
+
+      ctx.fillStyle = palette.statsText;
+      ctx.font = 'bold 30px "Noto Sans SC", sans-serif';
+      ctx.fillText(payload.uiMessages.loveYears.replace('{years}', String(love.years)).replace('{days}', String(love.days)), W / 2, 900);
+      ctx.fillText(payload.uiMessages.marriageYears.replace('{years}', String(marriage.years)).replace('{days}', String(marriage.days)), W / 2, 956);
+
+      ctx.fillStyle = palette.dateText;
+      ctx.font = '18px "Noto Sans SC", sans-serif';
+      ctx.fillText(payload.uiMessages.generatedOn.replace('{date}', displayDate), W / 2, 1076);
+
+      ctx.fillStyle = palette.footerText;
+      ctx.font = '16px "Noto Sans SC", sans-serif';
+      ctx.fillText(payload.uiMessages.footerText, W / 2, H - 90);
+
+      cvs.toBlob((blob) => cb(blob, fileDate), 'image/png', 0.96);
+    }
+
+    function doDownload(blob, dateStr) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `memorial-card-${dateStr}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function openPreviewDialog(blob, dateStr, triggerEl) {
+      if (typeof closeActivePreview === 'function') {
+        closeActivePreview(true);
+      }
+
+      const imageUrl = URL.createObjectURL(blob);
+      const overlay = document.createElement('div');
+      overlay.className = 'share-preview-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-label', payload.uiMessages.previewTitle);
+      overlay.innerHTML =
+        `<div class="share-preview-card glass">` +
+        `<div class="share-preview-header">` +
+        `<div class="share-preview-heading">` +
+        `<h3 class="share-preview-title">${payload.uiMessages.previewTitle}</h3>` +
+        `<p class="share-preview-subtitle">${payload.uiMessages.previewSubtitle}</p>` +
+        `</div>` +
+        `<button class="share-preview-close" type="button" aria-label="${payload.uiMessages.closePreview}">` +
+        `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+        `<path d="M18 6 6 18" />` +
+        `<path d="m6 6 12 12" />` +
+        `</svg>` +
+        `</button>` +
+        `</div>` +
+        `<div class="share-preview-image-wrap">` +
+        `<img src="${imageUrl}" alt="${payload.uiMessages.previewTitle}" />` +
+        `</div>` +
+        `<div class="share-preview-actions">` +
+        `<button class="share-preview-btn share-preview-btn-ghost" type="button">${payload.uiMessages.closeLabel}</button>` +
+        `<button class="share-preview-btn share-preview-btn-primary" type="button">${payload.uiMessages.downloadLabel}</button>` +
+        `</div>` +
+        `</div>`;
+
+      const closeBtn = overlay.querySelector('.share-preview-close');
+      const cancelBtn = overlay.querySelector('.share-preview-btn-ghost');
+      const downloadBtn = overlay.querySelector('.share-preview-btn-primary');
+
+      const onKeyDown = (evt) => {
+        if (evt.key === 'Escape') {
+          evt.preventDefault();
+          closeOverlay();
+        }
+      };
+
+      const restoreFocus = triggerEl instanceof HTMLElement ? triggerEl : null;
+
+      const cleanup = () => {
+        document.removeEventListener('keydown', onKeyDown);
+        document.body.classList.remove('share-preview-open');
+        closeActivePreview = null;
+      };
+
+      const closeOverlay = (immediate = false) => {
+        if (overlay.dataset.closed === '1') return;
+        overlay.dataset.closed = '1';
+        cleanup();
+
+        const finalize = () => {
+          overlay.remove();
+          URL.revokeObjectURL(imageUrl);
+          if (restoreFocus) restoreFocus.focus();
+        };
+
+        if (immediate) {
+          finalize();
+          return;
+        }
+
+        overlay.classList.remove('show');
+        setTimeout(finalize, 260);
+      };
+
+      if (closeBtn instanceof HTMLButtonElement) {
+        closeBtn.addEventListener('click', () => closeOverlay());
+      }
+      if (cancelBtn instanceof HTMLButtonElement) {
+        cancelBtn.addEventListener('click', () => closeOverlay());
+      }
+      if (downloadBtn instanceof HTMLButtonElement) {
+        downloadBtn.addEventListener('click', () => doDownload(blob, dateStr));
+      }
+
+      overlay.addEventListener('click', (evt) => {
+        if (evt.target === overlay) closeOverlay();
+      });
+
+      document.body.appendChild(overlay);
+      document.body.classList.add('share-preview-open');
+      document.addEventListener('keydown', onKeyDown);
+      closeActivePreview = closeOverlay;
+
+      requestAnimationFrame(() => {
+        overlay.classList.add('show');
+        if (downloadBtn instanceof HTMLButtonElement) {
+          downloadBtn.focus();
+        }
+      });
+    }
+
+    function showPreview(selectedIndex, triggerEl = null) {
+      const draw = () => {
+        generateMemorialCard(selectedIndex, (blob, dateStr) => {
+          if (!blob) return;
+          openPreviewDialog(blob, dateStr, triggerEl);
+        });
+      };
+
+      document.fonts ? document.fonts.ready.then(draw) : draw();
+    }
+
+    if (floatingShareBtn instanceof HTMLButtonElement) {
+      floatingShareBtn.addEventListener('click', (evt) => {
+        showPreview(null, evt.currentTarget);
+      });
+    }
+
+    window.addEventListener(payload.generateMemorialCardEvent, (event) => {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      const selectedIndex = Number.isFinite(Number(detail?.anniversaryIndex))
+        ? Number(detail.anniversaryIndex)
+        : null;
+      showPreview(selectedIndex, document.activeElement);
+    });
+  })();
+</script>

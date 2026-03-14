@@ -1,0 +1,146 @@
+---
+import { resolveAnniversaries, type Config } from '../config';
+import { APP_EVENTS } from '../constants/client';
+import type { LocaleMessages } from '../i18n/utils';
+
+interface Props {
+  config: Config;
+  messages?: LocaleMessages;
+}
+
+const { config, messages } = Astro.props;
+const anniversaries = resolveAnniversaries(config);
+const sectionTitle = messages?.sections.todaySummary || '今日摘要';
+const defaultPrimary = messages?.todaySummary.defaultPrimary || '今天也值得纪念。';
+const defaultSecondary = messages?.todaySummary.defaultSecondary || '记录当下，一起生成一张纪念卡。';
+const ctaText = messages?.actions.generateCard || '生成纪念卡';
+
+const payload = {
+  anniversaries,
+  generateMemorialCardEvent: APP_EVENTS.generateMemorialCard,
+  messages: {
+    defaultPrimary,
+    defaultSecondary,
+    todayPrimary: messages?.todaySummary.todayPrimary || '今天是我们的{displayLabel}',
+    todaySecondary: messages?.todaySummary.todaySecondary || '别忘了留下一张纪念卡，记录今天。',
+    soonPrimary: messages?.todaySummary.soonPrimary || '距离{displayLabel}还有 {gap} 天',
+    soonSecondary: messages?.todaySummary.soonSecondary || '重要日子快到了，提前准备一张纪念卡吧。',
+    upcomingPrimary: messages?.todaySummary.upcomingPrimary || '下一次重要日子：{displayLabel}',
+    upcomingSecondary: messages?.todaySummary.upcomingSecondary || '还有 {gap} 天，先把今天记下来。',
+  },
+};
+---
+
+<section class="w-full max-w-xl sm:max-w-2xl lg:max-w-3xl px-2 reveal" id="todaySummarySection">
+  <h2 class="section-title">{sectionTitle}</h2>
+  <div class="today-summary-card glass">
+    <p class="today-summary-primary" id="todaySummaryPrimary">{defaultPrimary}</p>
+    <p class="today-summary-secondary" id="todaySummarySecondary">{defaultSecondary}</p>
+    <button class="today-summary-cta" id="todaySummaryShareBtn" type="button">{ctaText}</button>
+  </div>
+</section>
+
+<script id="today-summary-script-payload" type="application/json" set:html={JSON.stringify(payload)}></script>
+<script>
+  import { formatDisplayLabel, getAnniversaryInfo } from '../scripts/anniversary/logic.ts';
+
+  function readTodaySummaryPayload() {
+    const fallback = {
+      anniversaries: [],
+      generateMemorialCardEvent: 'generate-memorial-card',
+      messages: {
+        defaultPrimary: '今天也值得纪念。',
+        defaultSecondary: '记录当下，一起生成一张纪念卡。',
+        todayPrimary: '今天是我们的{displayLabel}',
+        todaySecondary: '别忘了留下一张纪念卡，记录今天。',
+        soonPrimary: '距离{displayLabel}还有 {gap} 天',
+        soonSecondary: '重要日子快到了，提前准备一张纪念卡吧。',
+        upcomingPrimary: '下一次重要日子：{displayLabel}',
+        upcomingSecondary: '还有 {gap} 天，先把今天记下来。',
+      },
+    };
+
+    const payloadEl = document.getElementById('today-summary-script-payload');
+    if (!(payloadEl instanceof HTMLScriptElement)) return fallback;
+
+    try {
+      const payload = JSON.parse(payloadEl.textContent || '{}');
+      return {
+        anniversaries: Array.isArray(payload.anniversaries) ? payload.anniversaries : fallback.anniversaries,
+        generateMemorialCardEvent:
+          typeof payload.generateMemorialCardEvent === 'string' && payload.generateMemorialCardEvent
+            ? payload.generateMemorialCardEvent
+            : fallback.generateMemorialCardEvent,
+        messages: payload.messages || fallback.messages,
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  (function initTodaySummary() {
+    const primaryEl = document.getElementById('todaySummaryPrimary');
+    const secondaryEl = document.getElementById('todaySummarySecondary');
+    const shareTrigger = document.getElementById('todaySummaryShareBtn');
+    if (!(primaryEl instanceof HTMLElement) || !(secondaryEl instanceof HTMLElement)) return;
+
+    const payload = readTodaySummaryPayload();
+    const msg = payload.messages;
+    let nearestAnniversaryIndex = null;
+
+    function renderSummary() {
+      const items = payload.anniversaries
+        .filter((item) => typeof item?.date === 'string' && typeof item?.label === 'string')
+        .map((item, originalIndex) => ({
+          ...item,
+          originalIndex,
+          ...getAnniversaryInfo(item.date, item.label),
+        }))
+        .sort((a, b) => {
+          if (a.gap !== b.gap) return a.gap - b.gap;
+          return a.originalIndex - b.originalIndex;
+        });
+
+      if (!items.length) {
+        nearestAnniversaryIndex = null;
+        primaryEl.textContent = msg.defaultPrimary;
+        secondaryEl.textContent = msg.defaultSecondary;
+        return;
+      }
+
+      const nearest = items[0];
+      nearestAnniversaryIndex = nearest.originalIndex;
+      const displayLabel = formatDisplayLabel(nearest.label, nearest.nth);
+
+      if (nearest.gap === 0) {
+        primaryEl.textContent = msg.todayPrimary.replace('{displayLabel}', displayLabel);
+        secondaryEl.textContent = msg.todaySecondary;
+        return;
+      }
+
+      if (nearest.gap <= 7) {
+        primaryEl.textContent = msg.soonPrimary.replace('{displayLabel}', displayLabel).replace('{gap}', String(nearest.gap));
+        secondaryEl.textContent = msg.soonSecondary;
+        return;
+      }
+
+      primaryEl.textContent = msg.upcomingPrimary.replace('{displayLabel}', displayLabel);
+      secondaryEl.textContent = msg.upcomingSecondary.replace('{gap}', String(nearest.gap));
+    }
+
+    renderSummary();
+
+    if (shareTrigger instanceof HTMLButtonElement) {
+      shareTrigger.addEventListener('click', () => {
+        window.dispatchEvent(
+          new CustomEvent(payload.generateMemorialCardEvent, {
+            detail: {
+              source: 'today-summary',
+              anniversaryIndex: nearestAnniversaryIndex,
+            },
+          }),
+        );
+      });
+    }
+  })();
+</script>
