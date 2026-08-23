@@ -90,7 +90,7 @@ welcomeMessage: 'معرفتش ازاي اقدر افرحك وانتي مسافر
 enableWelcomeMessage: true,
 passwordConfig: {
 enabled: false,
-password: '', يا زنقني و جمبك فاضي"
+password: '' "يا زنقني و جمبك فاضي"
 hint: ' بتقولي كدا كل شويه انتي',
 successMessage: ' ازنقني كمان وانا راضي 🤷🏻',
 errorMessage: ' ورقتك هتجيلك بكره كدا 😾',
